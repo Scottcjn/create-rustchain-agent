@@ -1,61 +1,105 @@
 # create-rustchain-agent
 
-**60-second onboarding for a RustChain-participating agent.** One command
-scaffolds a working agent: an Ed25519 RTC wallet, a runnable `agent.py`, MCP
-node configuration for `rustchain-mcp`, and the path to claim the First-Light
-newcomer bounty.
+**Safe, profile-based onboarding for a RustChain-participating agent.** One
+command scaffolds an Ed25519 RTC wallet, a runnable `agent.py`, project-scoped
+`rustchain-mcp` configuration, and guidance tailored to the selected profile.
 
 ```bash
 uvx create-rustchain-agent my-agent
-# or: pipx run create-rustchain-agent my-agent
+# Equivalent to: uvx create-rustchain-agent my-agent --profile observer
 cd my-agent && python agent.py
 ```
 
+Omitting `--profile` retains the original observer behavior.
+
+## Profiles
+
+### `observer` (default)
+
+Creates the original read-only agent. Running `agent.py` sends `GET` requests
+to `/health` and `/wallet/balance?miner_id=...`, then shows the First-Light
+funding guidance. It does not submit transactions, enroll, attest, or post.
+
+```bash
+uvx create-rustchain-agent my-observer --profile observer
+```
+
+### `miner`
+
+Creates `miner-config.json` with `attestation_enabled` and `auto_enroll` set to
+`false`. Running `agent.py` only inspects `/health` and `/epoch`. The separate
+`--show-activation-commands` flag prints `clawrtc` commands for review but does
+not execute them; activation remains an explicit user action.
+
+```bash
+uvx create-rustchain-agent my-miner --profile miner
+cd my-miner
+python agent.py
+python agent.py --show-activation-commands
+```
+
+### `bottube-creator`
+
+Creates a placeholder `.env.example`, a local `draft.json`, and an enforced
+dry-run preview. The generated program contains no HTTP client or posting
+implementation, refuses `BOTTUBE_DRY_RUN=false`, never prints an API key, and
+warns against human account credentials.
+
+```bash
+uvx create-rustchain-agent my-creator --profile bottube-creator
+cd my-creator
+python agent.py
+```
+
 ## What it generates
-| File | Purpose |
-|------|---------|
-| `wallet.json` | Ed25519 RTC wallet (**private key inside; 0600 + gitignored**) |
-| `agent.py` | checks `/health` and `/wallet/balance?miner_id=...`; shows how to claim First-Light |
-| `.mcp.json` | runs `rustchain-mcp` against the selected `RUSTCHAIN_NODE` |
-| `README.md` | next steps + editor MCP setup |
-| `.gitignore` | excludes `wallet.json` |
+
+| File | Profiles | Purpose |
+|------|----------|---------|
+| `wallet.json` | all | Ed25519 RTC wallet (**private key inside; 0600 + gitignored**) |
+| `agent.py` | all | safe default behavior for the selected profile |
+| `.mcp.json` | all | runs `rustchain-mcp` with the selected `RUSTCHAIN_NODE` |
+| `README.md` | all | profile-specific operation and security guidance |
+| `.gitignore` | all | excludes `wallet.json`, `.env`, and Python cache files |
+| `miner-config.json` | miner | disabled mining configuration and reviewable commands |
+| `.env.example` | bottube-creator | placeholder agent environment values and dry-run setting |
+| `draft.json` | bottube-creator | local placeholder video metadata |
 
 ## Safe by default
-Scaffolding is **local only**: it generates files and a wallet, with no network
-writes. The generated `agent.py` performs read-only health and balance requests.
-Pass `--register` to also register a Beacon identity; that flag performs a
-network write. Use `--node <url>` to point both `agent.py` and `rustchain-mcp`
-at a testnet or alternate node.
 
-The generated `.mcp.json` configures the MCP server's node URL. It does not
-import `wallet.json`; `rustchain-mcp` maintains its own encrypted keystore for
-wallet tools. Review and approve the project-scoped MCP server when your editor
-prompts. Keep `wallet.json` private even though it is gitignored and mode `0600`.
+Scaffolding is local only: it generates files and a wallet, with no network
+writes. Generated observer and miner programs perform read-only inspection;
+the creator program makes no network requests at all.
+
+`--register` is retained for backward compatibility and is the one generator
+option that performs a network write. It registers a Beacon identity after
+scaffolding and must always be supplied explicitly.
+
+The generated `.mcp.json` uses the supported `RUSTCHAIN_NODE` environment
+variable. It does not import `wallet.json`; `rustchain-mcp` maintains its own
+encrypted keystore for wallet tools. Review and approve the project-scoped MCP
+server when your editor prompts. Keep `wallet.json` private.
 
 ## Options
 
 ```text
+--profile {observer,miner,bottube-creator}
+             Generated behavior (default: observer)
 --node URL   RustChain node used by agent.py and .mcp.json
 --register   Register a Beacon identity after scaffolding (network write)
 ```
-
-## The arc it sets up
-1. **Scaffold** → you have a funded-capable wallet + a participating agent.
-2. **Fund** → claim the First-Light newcomer bounty (paste your address).
-3. **Spend** → `pip install clawrtc` and use `clawrtc tip/gas/pay` (the spend SDK).
-4. **Mine** (optional) → `clawrtc install && clawrtc start` — real/vintage
-   hardware earns Proof-of-Antiquity bonus multipliers.
 
 Part of the [RustChain](https://rustchain.org) ecosystem.
 
 ## Development
 
-The test suite is offline: it runs generated agents against a local HTTP server
-and never registers identities or submits transactions.
+The test suite is offline: generated network clients use a loopback HTTP server,
+and tests never register identities, enroll miners, attest, upload, or post.
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
+python3 -m create_rustchain_agent --help
 ```
 
 ## License
-MIT © Elyan Labs.
+
+MIT (c) Elyan Labs.

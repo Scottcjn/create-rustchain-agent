@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "create-rustchain-agent"
 version = "0.1.0"
-description = "60-second onboarding for a RustChain-participating agent: wallet + agent.py + MCP wiring + First-Light bounty."
+description = "Safe profile-based RustChain agent scaffolding with wallet and MCP wiring."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Elyan Labs", email = "scott@elyanlabs.ai" }]

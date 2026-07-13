@@ -6,7 +6,7 @@ Thanks for helping make RustChain onboarding faster. This document is intentiona
 
 | Goal | File to touch |
 |------|---------------|
-| Add or change a generated file (e.g. `agent.py`, `wallet.json`) | `create_rustchain_agent/` package source |
+| Add or change a generated file (e.g. `agent.py`, `miner-config.json`) | `create_rustchain_agent/templates.py` |
 | Add or change a CLI flag (e.g. `--register`, `--node`) | `__main__.py` + update this CONTRIBUTING + the README |
 | Bump the version | `pyproject.toml` (`[project] version = ...`) + a Git tag |
 | Change project metadata / homepage | `pyproject.toml` (`[project.urls]`) |
@@ -40,27 +40,31 @@ The dev extras currently include the package itself with `cryptography>=41.0`. A
 
 ## Testing locally
 
-There is no upstream test suite yet. When you add one, please keep the smoke checks in this order:
+Run the offline unit suite first, then the CLI smoke checks:
 
 ```bash
-# 1. Import sanity
-python -c "import create_rustchain_agent; print('ok')"
+# 1. Unit and generated-agent tests
+python3 -m unittest discover -s tests -v
 
 # 2. CLI sanity
-python -m create_rustchain_agent --help
+python3 -m create_rustchain_agent --help
 
 # 3. End-to-end scaffold (writes to a throwaway dir)
 cd /tmp
-python -m create_rustchain_agent smoketest-agent
+python3 -m create_rustchain_agent smoketest-agent --profile observer
 ls smoketest-agent
 rm -rf smoketest-agent
 ```
 
-For destructive or network-touching changes, also confirm:
+Profile tests must remain offline. Generated observer and miner network calls
+should target the loopback test server; the BoTTube creator must not make a
+network call. Never use `--register` in a smoke test.
+
+To inspect another node without writing to it:
 
 ```bash
-# 4. --node flag (testnet only — never mainnet during local dev)
-python -m create_rustchain_agent smoketest-agent --node https://testnet.rustchain.org
+python3 -m create_rustchain_agent smoketest-miner \
+  --profile miner --node https://testnet.rustchain.org
 ```
 
 ## Pull request guidelines
@@ -79,6 +83,10 @@ python -m create_rustchain_agent smoketest-agent --node https://testnet.rustchai
 
 - The scaffold generates a **real Ed25519 keypair** in `wallet.json`. The CLI sets `0600` perms and adds `wallet.json` to `.gitignore`. Do not weaken these defaults.
 - `--register` performs a **network write** to the Beacon service. Never auto-run it; the user must opt in.
+- Miner scaffolds must default both enrollment and attestation to disabled and
+  must not execute activation commands for the user.
+- BoTTube creator scaffolds must use placeholder agent configuration, enforce
+  dry-run behavior, and never embed credentials or post automatically.
 - The package has no telemetry, no analytics, and no background services.
 
 ## Release process
