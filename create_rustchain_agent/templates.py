@@ -20,7 +20,7 @@ import os
 import urllib.parse
 import urllib.request
 
-NODE_URL = "{node}"
+NODE_URL = {node_literal}
 WALLET = os.path.join(os.path.dirname(__file__), "wallet.json")
 
 
@@ -68,7 +68,7 @@ import json
 import os
 import urllib.request
 
-NODE_URL = "{node}"
+NODE_URL = {node_literal}
 ROOT = os.path.dirname(__file__)
 WALLET = os.path.join(ROOT, "wallet.json")
 CONFIG = os.path.join(ROOT, "miner-config.json")
@@ -100,6 +100,12 @@ def main(argv=None):
     print(f"Miner wallet: {{wallet['address']}}")
     print("Attestation enabled:", config["attestation_enabled"])
     print("Automatic enrollment:", config["auto_enroll"])
+    if args.show_activation_commands:
+        print("\\nReview, then run these commands yourself to activate mining:")
+        for command in config["activation_commands"]:
+            print("  " + command)
+        return 0
+
     try:
         print("Node health:", _get("/health").get("ok", "?"))
         epoch = _get("/epoch")
@@ -108,13 +114,8 @@ def main(argv=None):
         print("Node inspection failed:", error)
         return 1
 
-    if args.show_activation_commands:
-        print("\\nReview, then run these commands yourself to activate mining:")
-        for command in config["activation_commands"]:
-            print("  " + command)
-    else:
-        print("\\nRead-only inspection complete. No enrollment or attestation was submitted.")
-        print("Run 'python agent.py --show-activation-commands' to review next steps.")
+    print("\\nRead-only inspection complete. No enrollment or attestation was submitted.")
+    print("Run 'python agent.py --show-activation-commands' to review next steps.")
     return 0
 
 
@@ -244,9 +245,10 @@ scaffold never runs a miner, enrolls hardware, or submits attestations for you.
 python agent.py --show-activation-commands
 ```
 
-This prints the commands in `miner-config.json`; it still does not execute them.
-Review your node, wallet, hardware identity, and the current RustChain mining
-documentation before manually running either command.
+This local-only mode prints the commands in `miner-config.json`; it does not
+contact the node or execute them. Review your node, wallet, hardware identity,
+and the current RustChain mining documentation before manually running either
+command.
 
 ## Wire the MCP into your editor
 Open this project and review/approve `.mcp.json`. It passes the selected node as
@@ -325,7 +327,12 @@ def _bottube_draft():
 
 def render_profile_files(profile, name, node_url, address):
     """Return profile-specific generated files keyed by relative path."""
-    values = {"name": name, "node": node_url, "address": address}
+    values = {
+        "name": name,
+        "node": node_url,
+        "node_literal": json.dumps(node_url),
+        "address": address,
+    }
     if profile == "observer":
         return {
             "agent.py": OBSERVER_AGENT_PY.format(**values),

@@ -87,6 +87,8 @@ python3 -m create_rustchain_agent smoketest-miner \
   must not execute activation commands for the user.
 - BoTTube creator scaffolds must use placeholder agent configuration, enforce
   dry-run behavior, and never embed credentials or post automatically.
+- Node URLs must be validated before directory or wallet creation and remain
+  safe to serialize into generated Python and JSON.
 - The package has no telemetry, no analytics, and no background services.
 
 ## Release process

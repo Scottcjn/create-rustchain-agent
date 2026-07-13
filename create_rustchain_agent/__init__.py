@@ -8,4 +8,4 @@ Scaffolding is local only. A Beacon registration network write happens only
 when the user explicitly supplies --register.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -14,6 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+import create_rustchain_agent
 from create_rustchain_agent import __main__ as cli
 from create_rustchain_agent.templates import PROFILES
 
@@ -159,6 +160,78 @@ class ScaffoldTests(unittest.TestCase):
                     self.assertIn("separate encrypted keystore", readme)
                     self.assertNotIn("claude mcp add", readme)
 
+    def test_node_url_is_normalized_before_generation(self):
+        supplied = "HTTPS://NODE.Example:8443/rustchain///"
+        normalized = "https://node.example:8443/rustchain"
+        with TemporaryDirectory() as tmpdir, working_directory(tmpdir):
+            self.assertEqual(scaffold("test-agent", supplied), 0)
+            config = json.loads(
+                Path("test-agent/.mcp.json").read_text(encoding="utf-8")
+            )
+            source = Path("test-agent/agent.py").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            config["mcpServers"]["rustchain"]["env"],
+            {"RUSTCHAIN_NODE": normalized},
+        )
+        self.assertIn(f'NODE_URL = "{normalized}"', source)
+        self.assertNotIn(supplied, source)
+
+    def test_node_url_normalizer_accepts_safe_http_variants(self):
+        cases = {
+            "http://localhost/": "http://localhost",
+            "https://NODE.Example./api%20v1/": "https://node.example./api%20v1",
+            "https://[2001:db8::1]:8443/rustchain/": (
+                "https://[2001:db8::1]:8443/rustchain"
+            ),
+        }
+        for supplied, expected in cases.items():
+            with self.subTest(supplied=supplied):
+                self.assertEqual(cli._normalize_node_url(supplied), expected)
+
+    def test_invalid_node_urls_create_no_files_or_wallet(self):
+        invalid_urls = (
+            "",
+            "node.example",
+            "ftp://node.example",
+            "http:///missing-host",
+            "https://user:password@node.example",
+            "https://node.example?mode=write",
+            "https://node.example/#fragment",
+            "https://node.example:not-a-port",
+            "https://node.example:70000",
+            "https://node.example:/empty-port",
+            "https://[::1]:/empty-port",
+            "https://node.example/path\nNODE_URL=unsafe",
+            "https://node.example/path\x7funsafe",
+            'https://node.example/";print("unsafe")',
+            "https://node.example/%0Aunsafe",
+            "https://node.example/\\unsafe",
+            "https://node.example/<unsafe>",
+        )
+        with TemporaryDirectory() as tmpdir, working_directory(tmpdir):
+            with mock.patch.object(cli, "_gen_wallet") as generate_wallet:
+                for index, node_url in enumerate(invalid_urls):
+                    with self.subTest(node_url=repr(node_url)):
+                        target = f"invalid-{index}"
+                        self.assertEqual(scaffold(target, node_url), 2)
+                        self.assertFalse(Path(target).exists())
+                generate_wallet.assert_not_called()
+            self.assertEqual(list(Path(".").iterdir()), [])
+
+    def test_cli_rejects_credential_node_before_directory_creation(self):
+        with TemporaryDirectory() as tmpdir, working_directory(tmpdir):
+            with redirect_stdout(StringIO()):
+                result = cli.main(
+                    [
+                        "credential-agent",
+                        "--node",
+                        "https://agent:secret@node.example",
+                    ]
+                )
+            self.assertEqual(result, 2)
+            self.assertFalse(Path("credential-agent").exists())
+
     def test_observer_uses_only_live_read_contracts(self):
         with local_node() as node_url:
             with TemporaryDirectory() as tmpdir, working_directory(tmpdir):
@@ -204,6 +277,7 @@ class ScaffoldTests(unittest.TestCase):
                     timeout=10,
                     check=True,
                 )
+                source = Path("test-miner/agent.py").read_text(encoding="utf-8")
 
         self.assertFalse(config["attestation_enabled"])
         self.assertFalse(config["auto_enroll"])
@@ -213,11 +287,29 @@ class ScaffoldTests(unittest.TestCase):
         self.assertIn("No enrollment or attestation was submitted", default_run.stdout)
         self.assertIn("clawrtc install", command_run.stdout)
         self.assertIn("clawrtc start", command_run.stdout)
+        self.assertNotIn("subprocess", source)
+        self.assertNotIn("os.system", source)
         self.assertEqual({method for method, _path in NodeHandler.requests}, {"GET"})
         self.assertEqual(
             [path for _method, path in NodeHandler.requests],
-            ["/health", "/epoch", "/health", "/epoch"],
+            ["/health", "/epoch"],
         )
+
+    def test_miner_activation_commands_work_without_node_availability(self):
+        with TemporaryDirectory() as tmpdir, working_directory(tmpdir):
+            scaffold("test-miner", "http://127.0.0.1:1", "miner")
+            result = subprocess.run(
+                [sys.executable, "agent.py", "--show-activation-commands"],
+                cwd="test-miner",
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+
+        self.assertIn("clawrtc install", result.stdout)
+        self.assertIn("clawrtc start", result.stdout)
+        self.assertNotIn("Node inspection failed", result.stdout)
 
     def test_bottube_creator_enforces_local_dry_run_without_credentials(self):
         with TemporaryDirectory() as tmpdir, working_directory(tmpdir):
@@ -355,6 +447,16 @@ class ScaffoldTests(unittest.TestCase):
         self.assertIn("explicit user action", readme)
         self.assertIn("no HTTP client or posting", readme)
         self.assertIn("--register", readme)
+
+    def test_package_versions_match_feature_release(self):
+        pyproject = (
+            Path(__file__)
+            .parents[1]
+            .joinpath("pyproject.toml")
+            .read_text(encoding="utf-8")
+        )
+        self.assertEqual(create_rustchain_agent.__version__, "0.2.0")
+        self.assertIn('version = "0.2.0"', pyproject)
 
 
 if __name__ == "__main__":

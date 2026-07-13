@@ -16,7 +16,8 @@ uvx create-rustchain-agent my-creator --profile bottube-creator
 - `observer` (default): read-only node health and wallet balance inspection;
   this preserves the original no-flag behavior.
 - `miner`: disabled miner configuration plus activation commands that are only
-  printed for review after an explicit flag; it never auto-enrolls or attests.
+  printed locally for review after an explicit flag; it never auto-enrolls,
+  contacts the node in command-display mode, or attests.
 - `bottube-creator`: placeholder environment and draft files with an enforced
   local dry run; it contains no posting implementation or embedded credential.
 
@@ -26,6 +27,7 @@ uvx create-rustchain-agent my-creator --profile bottube-creator
 - Writes `.mcp.json` with the selected `RUSTCHAIN_NODE` for `rustchain-mcp`.
 - Writes profile-specific `agent.py` and README guidance.
 - Supports `--node` for both the generated agent and MCP server.
+- Validates `--node` as credential-free HTTP(S) before creating any files.
 - Supports explicit `--register` Beacon registration as the only generator
   network write.
 

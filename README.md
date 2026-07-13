@@ -29,7 +29,7 @@ uvx create-rustchain-agent my-observer --profile observer
 Creates `miner-config.json` with `attestation_enabled` and `auto_enroll` set to
 `false`. Running `agent.py` only inspects `/health` and `/epoch`. The separate
 `--show-activation-commands` flag prints `clawrtc` commands for review but does
-not execute them; activation remains an explicit user action.
+not contact the node or execute them. Activation requires explicit user action.
 
 ```bash
 uvx create-rustchain-agent my-miner --profile miner
@@ -78,6 +78,12 @@ The generated `.mcp.json` uses the supported `RUSTCHAIN_NODE` environment
 variable. It does not import `wallet.json`; `rustchain-mcp` maintains its own
 encrypted keystore for wallet tools. Review and approve the project-scoped MCP
 server when your editor prompts. Keep `wallet.json` private.
+
+`--node` accepts only an absolute `http://` or `https://` URL with a valid host
+and optional port. Userinfo credentials, query strings, fragments, control
+characters, malformed ports, and unsafe path characters are rejected before
+the project directory or wallet is created. Trailing slashes are normalized so
+`agent.py` and `.mcp.json` always receive the same node value.
 
 ## Options
 

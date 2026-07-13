@@ -14,10 +14,13 @@ Pass --register to also register a Beacon identity on the network (a write).
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
+import re
 import sys
 import time
+from urllib.parse import urlsplit, urlunsplit
 
 from .templates import GITIGNORE, PROFILES, next_steps, render_profile_files
 
@@ -32,6 +35,90 @@ C = {
     "r": "\033[31m",
     "x": "\033[0m",
 }
+
+_HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_PATH_CHARACTERS = frozenset("/-._~!$&'()*+,;=:@")
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _normalize_node_url(node_url):
+    """Validate and normalize a node URL before generated files are created."""
+    if not isinstance(node_url, str) or not node_url:
+        raise ValueError("must be a non-empty string")
+    if not node_url.isascii():
+        raise ValueError("must contain ASCII characters only")
+    if any(
+        character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+        for character in node_url
+    ):
+        raise ValueError("must not contain whitespace or control characters")
+    if "?" in node_url or "#" in node_url:
+        raise ValueError("must not contain a query or fragment")
+
+    try:
+        parsed = urlsplit(node_url)
+    except ValueError as error:
+        raise ValueError("is malformed") from error
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"}:
+        raise ValueError("scheme must be http or https")
+    if not parsed.netloc or parsed.hostname is None:
+        raise ValueError("must include a host")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("must not include userinfo credentials")
+    if parsed.netloc.endswith(":"):
+        raise ValueError("contains an invalid port")
+
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("contains an invalid port") from error
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("contains an invalid port")
+
+    hostname = parsed.hostname
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        hostname_without_dot = hostname[:-1] if hostname.endswith(".") else hostname
+        labels = hostname_without_dot.split(".")
+        if (
+            not hostname_without_dot
+            or len(hostname) > 253
+            or any(not _HOST_LABEL.fullmatch(label) for label in labels)
+        ):
+            raise ValueError("contains an invalid host") from None
+        normalized_host = hostname.lower()
+    else:
+        normalized_host = address.compressed
+        if address.version == 6:
+            normalized_host = f"[{normalized_host}]"
+
+    path = parsed.path
+    index = 0
+    while index < len(path):
+        character = path[index]
+        if character.isalnum() or character in _PATH_CHARACTERS:
+            index += 1
+            continue
+        if (
+            character == "%"
+            and index + 2 < len(path)
+            and path[index + 1] in _HEX_DIGITS
+            and path[index + 2] in _HEX_DIGITS
+        ):
+            decoded = int(path[index + 1 : index + 3], 16)
+            if decoded < 0x20 or decoded == 0x7F:
+                raise ValueError("path contains an encoded control character")
+            index += 3
+            continue
+        raise ValueError("path contains an unsafe character")
+
+    netloc = normalized_host
+    if port is not None:
+        netloc += f":{port}"
+    normalized_path = path.rstrip("/")
+    return urlunsplit((scheme, netloc, normalized_path, "", ""))
 
 
 def _gen_wallet():
@@ -59,6 +146,11 @@ def _gen_wallet():
 
 
 def scaffold(name, node_url, do_register, profile="observer"):
+    try:
+        node_url = _normalize_node_url(node_url)
+    except ValueError as error:
+        print(f"{C['r']}Invalid node URL: {error}.{C['x']}")
+        return 2
     if profile not in PROFILES:
         choices = ", ".join(PROFILES)
         print(f"{C['r']}Unknown profile '{profile}'. Choose from: {choices}.{C['x']}")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "create-rustchain-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Safe profile-based RustChain agent scaffolding with wallet and MCP wiring."
 readme = "README.md"
 license = { text = "MIT" }
