@@ -5,9 +5,9 @@ Local-only by default. Generates:
   <name>/
     wallet.json        Ed25519 RTC wallet (gitignored; PRIVATE KEY inside)
     agent.py           runnable: checks balance, claims the First-Light bounty
-    .mcp.json          rustchain-mcp wired for Claude Code / Cursor / Cline
+    .mcp.json          rustchain-mcp wired to the selected RustChain node
     .gitignore         excludes wallet.json
-    README.md          next steps + mcp-add snippets
+    README.md          next steps + editor MCP setup
 
 Pass --register to also register a Beacon identity on the network (a write).
 """
@@ -50,7 +50,10 @@ AGENT_PY = '''#!/usr/bin/env python3
 First run: checks the node is reachable, prints your RTC address + balance, and
 shows how to claim the First-Light newcomer bounty so your wallet is funded.
 """
-import json, os, urllib.request
+import json
+import os
+import urllib.parse
+import urllib.request
 
 NODE_URL = "{node}"
 WALLET = os.path.join(os.path.dirname(__file__), "wallet.json")
@@ -62,15 +65,18 @@ def _get(path):
 
 
 def main():
-    w = json.load(open(WALLET))
+    with open(WALLET, encoding="utf-8") as wallet_file:
+        w = json.load(wallet_file)
     print(f"Agent wallet: {{w['address']}}")
     try:
         print("Node health:", _get("/health").get("ok", "?"))
     except Exception as e:
         print("Node unreachable:", e); return
     try:
-        bal = _get(f"/api/balance?wallet={{w['address']}}")
-        print("Balance:", bal)
+        query = urllib.parse.urlencode({{"miner_id": w["address"]}})
+        balance = _get("/wallet/balance?" + query)
+        amount = balance.get("amount_rtc", balance.get("balance_rtc"))
+        print("Balance:", f"{{amount}} RTC" if amount is not None else balance)
     except Exception as e:
         print("Balance lookup failed (new wallet is fine):", e)
     print()
@@ -84,17 +90,6 @@ if __name__ == "__main__":
     main()
 '''
 
-MCP_JSON = '''{{
-  "mcpServers": {{
-    "rustchain": {{
-      "command": "uvx",
-      "args": ["rustchain-mcp"],
-      "env": {{ "RUSTCHAIN_WALLET": "{wallet_path}" }}
-    }}
-  }}
-}}
-'''
-
 README_MD = '''# {name}
 
 A RustChain-participating agent, scaffolded by `create-rustchain-agent`.
@@ -102,7 +97,7 @@ A RustChain-participating agent, scaffolded by `create-rustchain-agent`.
 ## What you got
 - `wallet.json` — your Ed25519 RTC wallet (**private key inside; gitignored**)
 - `agent.py` — run `python agent.py` to check the node + your balance
-- `.mcp.json` — `rustchain-mcp` wired for your editor
+- `.mcp.json` — `rustchain-mcp` pointed at the same RustChain node
 
 ## Your RTC address
 ```
@@ -122,8 +117,13 @@ A RustChain-participating agent, scaffolded by `create-rustchain-agent`.
    ```
 
 ## Wire the MCP into your editor
-- **Claude Code:** `claude mcp add rustchain -- uvx rustchain-mcp`
-- **Cursor / Cline:** copy `.mcp.json` into your project's MCP config.
+- **Claude Code:** open this project and review/approve its `.mcp.json` server.
+- **Cursor / Cline:** copy the `rustchain` entry from `.mcp.json` into the
+  editor's project MCP configuration if it is not discovered automatically.
+
+`.mcp.json` points `rustchain-mcp` at the same node as `agent.py`. It does not
+import `wallet.json`; the MCP wallet tools keep a separate encrypted keystore.
+Keep `wallet.json` private.
 
 ## Mine (optional — earn RTC on real hardware)
 ```
@@ -140,18 +140,26 @@ def scaffold(name, node_url, do_register):
         return 1
     os.makedirs(name)
     wallet = _gen_wallet()
-    wallet_path = os.path.abspath(os.path.join(name, "wallet.json"))
-
-    with open(os.path.join(name, "wallet.json"), "w") as f:
+    with open(os.path.join(name, "wallet.json"), "w", encoding="utf-8") as f:
         json.dump(wallet, f, indent=2)
     os.chmod(os.path.join(name, "wallet.json"), 0o600)
-    with open(os.path.join(name, "agent.py"), "w") as f:
+    with open(os.path.join(name, "agent.py"), "w", encoding="utf-8") as f:
         f.write(AGENT_PY.format(name=name, node=node_url))
-    with open(os.path.join(name, ".mcp.json"), "w") as f:
-        f.write(MCP_JSON.format(wallet_path=wallet_path))
-    with open(os.path.join(name, "README.md"), "w") as f:
+    mcp_config = {
+        "mcpServers": {
+            "rustchain": {
+                "command": "uvx",
+                "args": ["rustchain-mcp"],
+                "env": {"RUSTCHAIN_NODE": node_url},
+            }
+        }
+    }
+    with open(os.path.join(name, ".mcp.json"), "w", encoding="utf-8") as f:
+        json.dump(mcp_config, f, indent=2)
+        f.write("\n")
+    with open(os.path.join(name, "README.md"), "w", encoding="utf-8") as f:
         f.write(README_MD.format(name=name, address=wallet["address"]))
-    with open(os.path.join(name, ".gitignore"), "w") as f:
+    with open(os.path.join(name, ".gitignore"), "w", encoding="utf-8") as f:
         f.write(GITIGNORE)
 
     print(f"\n{C['g']}{C['b']}✓ Scaffolded '{name}'{C['x']}")
@@ -163,7 +171,7 @@ def scaffold(name, node_url, do_register):
 
     print(f"\n{C['c']}Next:{C['x']}")
     print(f"  cd {name} && python agent.py")
-    print(f"  claude mcp add rustchain -- uvx rustchain-mcp")
+    print(f"  Open {name}/ in your MCP-compatible editor; .mcp.json is ready")
     print(f"  {C['d']}Fund via First-Light bounty, then: pip install clawrtc && clawrtc tip ...{C['x']}\n")
     return 0
 
