@@ -50,6 +50,67 @@ class NodeHandler(BaseHTTPRequestHandler):
         pass
 
 
+class BeaconNodeHandler(BaseHTTPRequestHandler):
+    """Mirrors the real node contract: registration is POST /beacon/join,
+    requiring agent_id + pubkey_hex, and a canonical bcn_<hash> agent_id must
+    equal bcn_ + sha256(pubkey_bytes)[:12]. Any other path 404s (nginx)."""
+
+    requests = []
+    registered = []
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+        self.requests.append(self.path)
+        if self.path != "/beacon/join":
+            self.send_error(404)
+            return
+        agent_id = body.get("agent_id")
+        pubkey_hex = body.get("pubkey_hex")
+        if not agent_id or not pubkey_hex:
+            self.send_error(400, "Missing required field")
+            return
+        expected = "bcn_" + hashlib.sha256(bytes.fromhex(pubkey_hex)).hexdigest()[:12]
+        if agent_id != expected:
+            self.send_error(400, "canonical bcn_<hash> must match pubkey_hex")
+            return
+        self.registered.append(agent_id)
+        body_out = json.dumps({"ok": True, "agent_id": agent_id, "status": "active"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body_out)))
+        self.end_headers()
+        self.wfile.write(body_out)
+
+    def log_message(self, _format, *_args):
+        pass
+
+
+class RegisterBeaconTests(unittest.TestCase):
+    def test_register_hits_beacon_join_with_canonical_agent_id(self):
+        BeaconNodeHandler.requests = []
+        BeaconNodeHandler.registered = []
+        wallet = cli._gen_wallet()
+        server = ThreadingHTTPServer(("127.0.0.1", 0), BeaconNodeHandler)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            node_url = f"http://127.0.0.1:{server.server_address[1]}"
+            cli._register_beacon(wallet, node_url)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        # Registration must reach /beacon/join (not the old atlas/register path)
+        # and succeed, meaning the derived canonical agent_id matched the pubkey.
+        self.assertEqual(BeaconNodeHandler.requests, ["/beacon/join"])
+        expected = "bcn_" + hashlib.sha256(
+            bytes.fromhex(wallet["public_key"])
+        ).hexdigest()[:12]
+        self.assertEqual(BeaconNodeHandler.registered, [expected])
+
+
 class ScaffoldTests(unittest.TestCase):
     def test_generated_wallet_matches_address_and_is_private(self):
         with TemporaryDirectory() as tmpdir, working_directory(tmpdir):
