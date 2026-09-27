@@ -217,15 +217,17 @@ def _register_beacon(wallet, node_url):
     print(
         f"\n{C['y']}--register: registering Beacon identity (network write)...{C['x']}"
     )
+    pub_bytes = bytes.fromhex(wallet["public_key"])
+    agent_id = "bcn_" + hashlib.sha256(pub_bytes).hexdigest()[:12]
     payload = json.dumps(
         {
+            "agent_id": agent_id,
             "pubkey_hex": wallet["public_key"],
-            "rtc_address": wallet["address"],
         }
     ).encode()
     try:
         req = urllib.request.Request(
-            node_url.rstrip("/") + "/beacon/atlas/register",
+            node_url.rstrip("/") + "/beacon/join",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
